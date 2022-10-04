@@ -27,13 +27,14 @@ import socket
 # Just in case method could change
 PYTHON3 = (version_info.major > 2)
 
-if PYTHON3 :
-    from http.server import BaseHTTPRequestHandler, HTTPServer
+#if PYTHON3 :
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # HTTP libraries depends upon Python 2 or 3
 if PYTHON3 :
     import urllib.parse, urllib.request
 else:
+    from urlparse import urlparse, parse_qs
     from urllib import urlencode
     import urllib2
 
@@ -282,6 +283,7 @@ class ThermostatData:
                 "access_token" : self.getAuthToken
                 }
         resp = postRequest(_GETTHERMOSTATDATA_REQ, postParams)
+        if not resp : raise NoDevice("No thermostat available")
         self.rawData = resp['body']['devices']
         if not self.rawData : raise NoDevice("No thermostat available")
         self.thermostatData = filter_home_data(self.rawData, home)
@@ -481,6 +483,7 @@ class HomeData:
             "access_token" : self.getAuthToken
             }
         resp = postRequest(_GETHOMEDATA_REQ, postParams)
+        if not resp : raise NoDevice("No home available")
         self.rawData = resp['body']
         # Collect homes
         self.homes = { d['id'] : d for d in self.rawData['homes'] }
@@ -856,9 +859,8 @@ def getFreePort():
 def encodeParams(params):
     if PYTHON3:
         return urllib.parse.urlencode(params)
-    return urllib.urlencode(params)
+    return urlencode(params)
 
-# TODO: Python 3 only
 class ProcessOAuth2Code(BaseHTTPRequestHandler):
 
     def _set_response(self):
@@ -870,7 +872,11 @@ class ProcessOAuth2Code(BaseHTTPRequestHandler):
         #logging.info("GET request,\nPath: %s\nHeaders:\n%s\n", str(self.path), str(self.headers))
         self._set_response()
 
-        urlParams = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        if PYTHON3:
+            urlParams = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        else:
+            urlParams = parse_qs(urlparse(self.path).query)
+
         if not "code" in urlParams:
             self.wfile.write(("no code in request").encode('utf-8'))
             return
@@ -908,8 +914,9 @@ def updateRefreshToken(token):
 
     data["REFRESH_TOKEN"] = token
 
-    with open(CREDENTIALS, "w") as jsonFile:
-        json.dump(data, jsonFile)
+    jsonFile = open(CREDENTIALS, "w")
+    jsonFile.write(json.dumps(data, indent=4, sort_keys=True))
+    jsonFile.close()
 
 
 # auto-test when executed directly
@@ -945,23 +952,29 @@ if __name__ == "__main__":
     authorization = ClientAuth()  # Test authentication method
     
     try:
+        logger.info("Trying to get WeatherStationData")
         weatherStation = WeatherStationData(authorization)         # Test DEVICELIST
+        logger.info("WeatherStationData can be retreived")
     except NoDevice:
         logger.warning("No weather station available for testing")
     else:
         weatherStation.MinMaxTH()                          # Test GETMEASUR
 
     try:
+        logger.info("Trying to get HomeData")
         homes = HomeData(authorization)
+        logger.info("HomeData can be retreived")
     except NoDevice :
         logger.warning("No home available for testing")
 
     try:
+        logger.info("Trying to get ThermostatData")
         thermostat = ThermostatData(authorization)
+        logger.info("ThermostatData can be retreived")
     except NoDevice:
         logger.warning("No thermostat avaible for testing")
 
     # If we reach this line, all is OK
-    logger.info("OK")
+    logger.info("Testing is done")
 
     exit(0)
